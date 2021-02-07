@@ -137,15 +137,23 @@
 
 (defn- register-bounce-for-profile
   [{:keys [pool]} {:keys [type kind profile-id] :as message}]
-  (db/with-atomic [conn pool]
-    (db/insert! conn :profile-complaint-report
-                {:profile-id profile-id
-                 :type (name type)
-                 :content (db/tjson message)})
+  (when (= kind "permanent")
+    (db/with-atomic [conn pool]
+      (db/insert! conn :profile-complaint-report
+                  {:profile-id profile-id
+                   :type (name type)
+                   :content (db/tjson message)})
 
-    (when (= kind "permanent")
+      ;; TODO: maybe also try to find profiles by mail and if exists
+      ;; register profile reports for them?
+      (doseq [recipient (:recipients report)]
+        (db/insert! conn :global-complaint-report
+                    {:email (:email recipient)
+                     :type (name type)
+                     :content (db/tjson report)}))
+
       (let [profile (db/exec-one! conn (sql/select :profile {:id profile-id}))]
-        (if (some #(= (:email profile) (:email %)) (:recipients report))
+        (when (some #(= (:email profile) (:email %)) (:recipients report))
           ;; If the report matches the profile email, this means that
           ;; the report is for itself, can be caused when a user
           ;; registers with an invalid email or the user email is
@@ -154,17 +162,7 @@
           ;; the profile will be also inactive.
           (db/update! conn :profile
                       {:is-mutted true}
-                      {:id profile-id})
-
-          ;; In other case, this means that profile causes spam to other
-          ;; email account. For this case we need to register a global
-          ;; complaint report for avoid next invitations to be sent to
-          ;; that email and register a profile complain report for a
-          ;; posible future profile mutting.
-          (doseq [recipient (:recipients report)]
-            (db/insert! conn :global-complaint-report
-                        {:email (:email recipient)
-                         :content (db/tjson report)})))))))
+                      {:id profile-id}))))))
 
 (defn- register-complaint-for-profile
   [{:keys [pool]} {:keys [type profile-id] :as report}]
@@ -173,25 +171,23 @@
                 {:profile-id profile-id
                  :type (name type)
                  :content (db/tjson message)})
+
+    ;; TODO: maybe also try to find profiles by mail and if exists
+    ;; register profile reports for them?
+    (doseq [email (:recipients report)]
+      (db/insert! conn :global-complaint-report
+                  {:email email
+                   :type (name type)
+                   :content (db/tjson report)}))
+
     (let [profile (db/exec-one! conn (sql/select :profile {:id profile-id}))]
-      (if (some #(= (:email profile) %) (:recipients report))
+      (when (some #(= % (:email profile)) (:recipients report))
         ;; If the report matches the profile email, this means that
-        ;; the report is for itself, rare case but can happens; In
-        ;; this case just mark profile as mutted and register profile
-        ;; complaint report.
+        ;; the report is for itself, rare case but can happen; In this
+        ;; case just mark profile as mutted (very rare case).
         (db/update! conn :profile
                     {:is-mutted true}
-                    {:id profile-id})
-
-        ;; In other case, this means that profile causes spam to other
-        ;; email account. For this case we need to register a global
-        ;; complaint report for avoid next invitations to be sent to
-        ;; that email and register a profile complain report for a
-        ;; posible future profile mutting.
-        (doseq [email (:recipients report)]
-          (db/insert! conn :global-complaint-report
-                      {:email email
-                       :content (db/tjson report)}))))))
+                    {:id profile-id})))))
 
 (defn process-report
   [{:keys [pool] :as cfg} {:keys [type profile-id] :as report}]

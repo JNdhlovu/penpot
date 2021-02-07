@@ -45,15 +45,25 @@
 
 (defn allow-send-emails?
   [conn {:keys [email] :as profile}]
-  (or (not (:is-mutted profile false))
-      (let [report (db/exec-one! conn (sql/select :permanent-complaints {:email email}))]
-        (< (:incidents report 0) 2))))
+  (when-not (:is-mutted profile false)
+    (let [sql  (sql/select :profile-complaint-report
+                           {:profile-id (:id profile)
+                            :is-expired false}
+                           {:columns :type
+                            :limit 100})
+          rows (db/exec! conn sql)
+          grps (group-by :type rows)]
+      (and (< (count (get grps "bounce")) (:profile-bounce-threshold cfg/config))
+           (< (count (get grps "complaint") (:profile-complaint-threshold cfg/config)))))))
 
 (defn has-complain-reports?
   ([conn email] (has-complain-reports? conn email nil))
-  ([conn email {:keys [threshold] :or {threshold 2}}]
-   (let [report (db/exec-one! conn (sql/select :permanent-complaints {:email email}))]
-     (< (:incidents report 0) threshold))))
+  ([conn email {:keys [threshold] :or {threshold 1}}]
+   (let [reports (db/exec! conn (sql/select :global-complaint-report
+                                            {:email email}
+                                            {:limit 10}))]
+     (> (count reports) threshold))))
+
 
 ;; --- Emails
 

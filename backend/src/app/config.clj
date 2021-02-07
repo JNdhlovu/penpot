@@ -52,6 +52,9 @@
    :smtp-default-reply-to "Penpot <no-reply@example.com>"
    :smtp-default-from "Penpot <no-reply@example.com>"
 
+   :profile-complaint-threshold 2 ; in a week
+   :profile-bounce-threshold 10   ; in a week
+
    :allow-demo-users true
    :registration-enabled true
    :registration-domain-whitelist ""
@@ -97,6 +100,9 @@
 
 (s/def ::feedback-enabled ::us/boolean)
 (s/def ::feedback-destination ::us/string)
+
+(s/def ::profile-complaint-threshold ::us/integer)
+(s/def ::profile-bounce-threshold ::us/integer)
 
 (s/def ::error-report-webhook ::us/string)
 
@@ -185,6 +191,8 @@
                    ::ldap-bind-dn
                    ::ldap-bind-password
                    ::public-uri
+                   ::profile-complaint-threshold
+                   ::profile-bounce-threshold
                    ::redis-uri
                    ::registration-domain-whitelist
                    ::registration-enabled

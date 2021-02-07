@@ -4,7 +4,7 @@ CREATE TABLE profile_complaint_report (
 
   is_expired boolean DEFAULT false,
 
-  type text,
+  type text NOT NULL,
   content jsonb
 );
 
@@ -38,7 +38,12 @@ CREATE TABLE global_complaint_report (
   email text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
 
+  type text NOT NULL
   content jsonb,
 
   PRIMARY KEY (email, created_at)
 );
+
+ALTER TABLE global_complaint_report
+  ALTER COLUMN type SET STORAGE external,
+  ALTER COLUMN content SET STORAGE external;
