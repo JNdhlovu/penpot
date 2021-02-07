@@ -11,3 +11,6 @@ CREATE TABLE profile_complaint (
 ALTER TABLE profile_complaint
   ALTER COLUMN type SET STORAGE external,
   ALTER COLUMN content SET STORAGE external;
+
+-- ALTER TABLE profile
+--   ADD COLUMN 

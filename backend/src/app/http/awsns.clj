@@ -83,8 +83,8 @@
   [data]
   {:type          :complaint
    :user-agent    (get data "userAgent")
+   :kind          (get data "complaintFeedbackType")
    :category      (get data "complaintSubType")
-   :feedback-type (get data "complaintFeedbackType")
    :arrival-date  (get data "arrivalDate")
    :feedback-id   (get data "feedbackId")
    :recipients    (->> (get data "complainedRecipients")
