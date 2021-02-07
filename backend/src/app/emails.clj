@@ -5,13 +5,15 @@
 ;; This Source Code Form is "Incompatible With Secondary Licenses", as
 ;; defined by the Mozilla Public License, v. 2.0.
 ;;
-;; Copyright (c) 2020 UXBOX Labs SL
+;; Copyright (c) 2020-2021 UXBOX Labs SL
 
 (ns app.emails
   "Main api for send emails."
   (:require
    [app.common.spec :as us]
    [app.config :as cfg]
+   [app.db :as db]
+   [app.db.sql :as sql]
    [app.tasks :as tasks]
    [app.util.emails :as emails]
    [clojure.spec.alpha :as s]))
@@ -40,6 +42,18 @@
                          :max-retries 1
                          :priority 200
                          :props email})))
+
+(defn allow-send-emails?
+  [conn {:keys [email] :as profile}]
+  (or (not (:is-mutted profile false))
+      (let [report (db/exec-one! conn (sql/select :permanent-complaints {:email email}))]
+        (< (:incidents report 0) 2))))
+
+(defn has-complain-reports?
+  ([conn email] (has-complain-reports? conn email nil))
+  ([conn email {:keys [threshold] :or {threshold 2}}]
+   (let [report (db/exec-one! conn (sql/select :permanent-complaints {:email email}))]
+     (< (:incidents report 0) threshold))))
 
 ;; --- Emails
 

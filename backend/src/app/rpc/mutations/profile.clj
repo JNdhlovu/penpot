@@ -112,6 +112,12 @@
               ptoken (tokens :generate-predefined
                              {:iss :profile-identity
                               :profile-id (:id profile)})]
+
+          (when-not (emails/has-complain-reports? conn (:email profile))
+            (ex/raise :type :validation
+                      :code :email-has-complaints
+                      :hint "looks like the profile has repoted repeatedly as spam or has permanent bounces."))
+
           (emails/send! conn emails/register
                         {:to (:email profile)
                          :name (:fullname profile)
@@ -119,7 +125,6 @@
                          :extra-data ptoken})
 
           profile)))))
-
 
 (defn email-domain-in-whitelist?
   "Returns true if email's domain is in the given whitelist or if given
@@ -178,6 +183,7 @@
                       {:id id
                        :fullname fullname
                        :email (str/lower email)
+                       :auth-backend "penpot"
                        :password password
                        :props props
                        :is-active active?
@@ -249,11 +255,12 @@
 
 ;; --- Mutation: Register if not exists
 
+(s/def ::backend ::us/string)
 (s/def ::login-or-register
-  (s/keys :req-un [::email ::fullname]))
+  (s/keys :req-un [::email ::fullname ::backend]))
 
 (sv/defmethod ::login-or-register {:auth false}
-  [{:keys [pool] :as cfg} {:keys [email fullname] :as params}]
+  [{:keys [pool] :as cfg} {:keys [email backend fullname] :as params}]
   (letfn [(populate-additional-data [conn profile]
             (let [data (profile/retrieve-additional-data conn (:id profile))]
               (merge profile data)))
@@ -263,6 +270,7 @@
                         {:id (uuid/next)
                          :fullname fullname
                          :email (str/lower email)
+                         :auth-backend backend
                          :is-active true
                          :password "!"
                          :is-demo false}))
@@ -369,16 +377,30 @@
                           {:iss :change-email
                            :exp (dt/in-future "15m")
                            :profile-id profile-id
-                           :email email})]
+                           :email email})
+          ptoken  (tokens :generate-predefined
+                          {:iss :profile-identity
+                           :profile-id (:id profile)})]
 
       (when (not= email (:email profile))
         (check-profile-existence! conn params))
+
+      (when (:is-mutted profile false)
+        (ex/raise :type :validation
+                  :code :profile-is-mutted
+                  :hint "looks like the profile has repoted repeatedly as spam or has permanent bounces."))
+
+      (when (emails/has-complain-reports? conn email)
+        (ex/raise :type :validation
+                  :code :email-has-complaints
+                  :hint "looks like the email you invite has been repetedly reported"))
 
       (emails/send! conn emails/change-email
                     {:to (:email profile)
                      :name (:fullname profile)
                      :pending-email email
-                     :token token})
+                     :token token
+                     :extra-data ptoken})
       nil)))
 
 (defn select-profile-for-update
@@ -416,6 +438,17 @@
           (ex/raise :type :validation
                     :code :profile-not-verified
                     :hint "the user need to validate profile before recover password"))
+
+        (when (:is-mutted profile false)
+          (ex/raise :type :validation
+                    :code :profile-is-mutted
+                    :hint "looks like the profile has repoted repeatedly as spam or has permanent bounces."))
+
+        (when (emails/has-complain-reports? conn (:email profile))
+          (ex/raise :type :validation
+                    :code :email-has-complaints
+                    :hint "looks like the profile has repoted repeatedly as spam or has permanent bounces."))
+
         (->> profile
              (create-recovery-token)
              (send-email-notification conn))))))

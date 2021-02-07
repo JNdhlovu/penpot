@@ -26,7 +26,7 @@
 
 (declare parse-json)
 (declare parse-notification)
-(declare process-notification)
+(declare process-report)
 
 (defn- pprint-message
   [message]
@@ -57,7 +57,7 @@
         (when-let [message (parse-json (get body "Message"))]
           ;; (log/infof "Received: %s" (pr-str message))
           (let [notification (parse-notification cfg message)]
-            (process-notification cfg notification)))
+            (process-report cfg notification)))
 
         :else
         (log/warn (str "Unexpected data received.\n"
@@ -74,7 +74,7 @@
    :timestamp   (get data "timestamp")
    :recipients  (->> (get data "bouncedRecipients")
                      (mapv (fn [item]
-                             {:email (get item "emailAddress")
+                             {:email  (str/lower (get item "emailAddress"))
                               :status (get item "status")
                               :action (get item "action")
                               :dcode  (get item "diagnosticCode")})))})
@@ -88,7 +88,8 @@
    :arrival-date  (get data "arrivalDate")
    :feedback-id   (get data "feedbackId")
    :recipients    (->> (get data "complainedRecipients")
-                       (mapv #(get % "emailAddress")))})
+                       (mapv #(get % "emailAddress"))
+                       (mapv str/lower))})
 
 (defn- extract-headers
   [mail]
@@ -134,16 +135,67 @@
   (ex/ignoring
    (j/read-value v)))
 
-(defn- register-complaint-for-profile
-  [{:keys [pool]} {:keys [type profile-id] :as message}]
-  (db/insert! pool :profile-complaint
-              {:profile-id profile-id
-               :type (name type)
-               :content (db/tjson message)}))
+(defn- register-bounce-for-profile
+  [{:keys [pool]} {:keys [type kind profile-id] :as message}]
+  (db/with-atomic [conn pool]
+    (db/insert! conn :profile-complaint-report
+                {:profile-id profile-id
+                 :type (name type)
+                 :content (db/tjson message)})
 
-(defn process-notification
-  [{:keys [pool] :as cfg} {:keys [type profile-id] :as message}]
-  (log/debug (str "Procesing message:\n" (pprint-message message)))
+    (when (= kind "permanent")
+      (let [profile (db/exec-one! conn (sql/select :profile {:id profile-id}))]
+        (if (some #(= (:email profile) (:email %)) (:recipients report))
+          ;; If the report matches the profile email, this means that
+          ;; the report is for itself, can be caused when a user
+          ;; registers with an invalid email or the user email is
+          ;; permanently rejecting receiving the email. In this case we
+          ;; have no option to mark the user as mutted (and in this case
+          ;; the profile will be also inactive.
+          (db/update! conn :profile
+                      {:is-mutted true}
+                      {:id profile-id})
+
+          ;; In other case, this means that profile causes spam to other
+          ;; email account. For this case we need to register a global
+          ;; complaint report for avoid next invitations to be sent to
+          ;; that email and register a profile complain report for a
+          ;; posible future profile mutting.
+          (doseq [recipient (:recipients report)]
+            (db/insert! conn :global-complaint-report
+                        {:email (:email recipient)
+                         :content (db/tjson report)})))))))
+
+(defn- register-complaint-for-profile
+  [{:keys [pool]} {:keys [type profile-id] :as report}]
+  (db/with-atomic [conn pool]
+    (db/insert! conn :profile-complaint-report
+                {:profile-id profile-id
+                 :type (name type)
+                 :content (db/tjson message)})
+    (let [profile (db/exec-one! conn (sql/select :profile {:id profile-id}))]
+      (if (some #(= (:email profile) %) (:recipients report))
+        ;; If the report matches the profile email, this means that
+        ;; the report is for itself, rare case but can happens; In
+        ;; this case just mark profile as mutted and register profile
+        ;; complaint report.
+        (db/update! conn :profile
+                    {:is-mutted true}
+                    {:id profile-id})
+
+        ;; In other case, this means that profile causes spam to other
+        ;; email account. For this case we need to register a global
+        ;; complaint report for avoid next invitations to be sent to
+        ;; that email and register a profile complain report for a
+        ;; posible future profile mutting.
+        (doseq [email (:recipients report)]
+          (db/insert! conn :global-complaint-report
+                      {:email email
+                       :content (db/tjson report)}))))))
+
+(defn process-report
+  [{:keys [pool] :as cfg} {:keys [type profile-id] :as report}]
+  (log/debug (str "Procesing report:\n" (pprint-report report)))
   (cond
     ;; In this case we receive a bounce/complaint notification without
     ;; confirmed identity, we just emit a warning but do nothing about
@@ -151,14 +203,16 @@
     ;; come with profile identity.
     (nil? profile-id)
     (log/warn (str "A notification without identity recevied from AWS\n"
-                   (pprint-message message)))
+                   (pprint-report report)))
 
-    (or (= :bounce type)
-        (= :complaint type))
-    (register-complaint-for-profile cfg message)
+    (= :bounce type)
+    (register-bounce-for-profile cfg report)
+
+    (= :complaint type)
+    (register-complaint-for-profile cfg report)
 
     :else
-    (log/warn (str "Unrecognized message received from AWS\n"
-                   (pprint-message message)))))
+    (log/warn (str "Unrecognized report received from AWS\n"
+                   (pprint-report report)))))
 
 

@@ -308,6 +308,19 @@
         (ex/raise :type :validation
                   :code :insufficient-permissions))
 
+      ;; First check if the current profile is allowed to send emails.
+      (when (:is-mutted profile false)
+        (ex/raise :type :validation
+                  :code :profile-is-mutted
+                  :hint "looks like the profile has repoted repeatedly as spam or has permanent bounces."))
+
+      ;; Secondly check if the invited member email is part of the
+      ;; global spam/bounce report.
+      (when (emails/has-complain-reports? conn email)
+        (ex/raise :type :validation
+                  :code :email-has-complaints
+                  :hint "looks like the email you invite has been repetedly reported"))
+
       (emails/send! conn emails/invite-to-team
                     {:to email
                      :invited-by (:fullname profile)
