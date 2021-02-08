@@ -115,10 +115,10 @@
 
           ;; Don't allow proceed in register page if the email is
           ;; already reported as spam.
-          (when-not (emails/has-complain-reports? conn (:email profile))
+          (when-not (emails/has-bounce-reports? conn (:email profile))
             (ex/raise :type :validation
-                      :code :email-has-complaints
-                      :hint "looks like the email has repoted repeatedly as spam or has permanent bounces"))
+                      :code :email-has-permanent-bounces
+                      :hint "looks like the email has one or many bounces reported"))
 
           (emails/send! conn emails/register
                         {:to (:email profile)
@@ -392,9 +392,9 @@
                   :code :profile-is-mutted
                   :hint "looks like the profile has repoted repeatedly as spam or has permanent bounces."))
 
-      (when (emails/has-complain-reports? conn email)
+      (when (emails/has-bounce-reports? conn email)
         (ex/raise :type :validation
-                  :code :email-has-complaints
+                  :code :email-has-permanent-bounces
                   :hint "looks like the email you invite has been repetedly reported as spam or permanent bounce"))
 
       (emails/send! conn emails/change-email
@@ -444,11 +444,6 @@
         (when (emails/allow-send-emails? conn profile)
           (ex/raise :type :validation
                     :code :profile-is-mutted
-                    :hint "looks like the profile has repoted repeatedly as spam or has permanent bounces."))
-
-        (when (emails/has-complain-reports? conn (:email profile))
-          (ex/raise :type :validation
-                    :code :email-has-complaints
                     :hint "looks like the profile has repoted repeatedly as spam or has permanent bounces."))
 
         (->> profile

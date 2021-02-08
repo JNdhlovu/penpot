@@ -288,6 +288,10 @@
     :app.error-reporter/handler
     {:pool (ig/ref :app.db/pool)}
 
+    :app.emails/gc-profile-complaints
+    {:pool (ig/ref :app.db/pool)
+     :max-age (dt/duration {:days 7})}
+
     :app.storage/storage
     {:pool     (ig/ref :app.db/pool)
      :executor (ig/ref :app.worker/executor)

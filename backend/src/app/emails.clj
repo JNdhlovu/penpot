@@ -60,9 +60,17 @@
   ([conn email] (has-complain-reports? conn email nil))
   ([conn email {:keys [threshold] :or {threshold 1}}]
    (let [reports (db/exec! conn (sql/select :global-complaint-report
-                                            {:email email}
+                                            {:email email :type "complaint"}
                                             {:limit 10}))]
-     (> (count reports) threshold))))
+     (>= (count reports) threshold))))
+
+(defn has-bounce-reports?
+  ([conn email] (has-bounce-reports? conn email nil))
+  ([conn email {:keys [threshold] :or {threshold 1}}]
+   (let [reports (db/exec! conn (sql/select :global-complaint-report
+                                            {:email email :type "bounce"}
+                                            {:limit 10}))]
+     (>= (count reports) threshold))))
 
 
 ;; --- Emails
@@ -113,3 +121,29 @@
 (def invite-to-team
   "Teams member invitation email."
   (emails/template-factory ::invite-to-team default-context))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Task: Complaint Expiration Handling
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(s/def ::max-age ::dt/duration)
+
+(defmethod ig/pre-init-spec ::gc-profile-complaints [_]
+  (s/keys :req-un [::db/pool ::max-age]))
+
+(def sql:mark-complaints-expired
+  "update profile_complaint_report
+      set is_expired = true
+    where is_expired is false
+      and created_at < now() - ?::interval")
+
+(defmethod ig/init-key ::gc-profile-complaints
+  [_ {:keys [pool max-age] :as cfg}]
+  (fn [_]
+    (db/with-atomic [conn pool]
+      (let [interval (db/interval max-age)
+            result   (db/exec-one! conn [sql:mark-complaints-expired interval])
+            result   (:next.jdbc/update-count result)]
+        (log/infof "gc-profile-complaints: %s objects maked as expired" result)
+        result))))
+

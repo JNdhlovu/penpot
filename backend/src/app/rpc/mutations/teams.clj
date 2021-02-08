@@ -316,9 +316,9 @@
 
       ;; Secondly check if the invited member email is part of the
       ;; global spam/bounce report.
-      (when (emails/has-complain-reports? conn email)
+      (when (emails/has-bounce-reports? conn email)
         (ex/raise :type :validation
-                  :code :email-has-complaints
+                  :code :email-has-permanent-bounces
                   :hint "looks like the email you invite has been repetedly reported as spam or permanent bounce"))
 
       (emails/send! conn emails/invite-to-team

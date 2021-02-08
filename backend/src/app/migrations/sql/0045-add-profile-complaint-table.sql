@@ -1,15 +1,17 @@
 CREATE TABLE profile_complaint_report (
-  profile_id uuid PRIMARY KEY REFERENCES profile(id) ON DELETE CASCADE,
+  profile_id uuid NOT NULL REFERENCES profile(id) ON DELETE CASCADE,
   created_at timestamptz NOT NULL DEFAULT now(),
 
   is_expired boolean DEFAULT false,
 
   type text NOT NULL,
   content jsonb
+
+  PRIMARY KEY (profile_id, created_at)
 );
 
 -- Enables fast index only scans.
-CREATE INDEX profile_complaint_report__not_expired__idx (profile_id, created_at)
+CREATE INDEX profile_complaint_report__not_expired__idx (created_at, profile_id)
  WHERE is_expred IS false;
 
 ALTER TABLE profile_complaint_report
