@@ -13,6 +13,7 @@
    [app.common.exceptions :as ex]
    [app.common.spec :as us]
    [app.db :as db]
+   [app.db.sql :as sql]
    [app.tasks :as tasks]
    [app.util.http :as http]
    [app.util.json :as json]
@@ -28,7 +29,7 @@
 (declare parse-notification)
 (declare process-report)
 
-(defn- pprint-message
+(defn- pprint-report
   [message]
   (binding [clojure.pprint/*print-right-margin* 120]
     (with-out-str (pprint message))))
@@ -49,9 +50,8 @@
         (= mtype "SubscriptionConfirmation")
         (let [surl   (get body "SubscribeURL")
               stopic (get body "TopicArn")]
-          ;; TODO: timeout
           (log/infof "Subscription received (topic=%s, url=%s)" stopic surl)
-          (http/send! {:uri surl :method :post}))
+          (http/send! {:uri surl :method :post :timeout 10000}))
 
         (= mtype "Notification")
         (when-let [message (parse-json (get body "Message"))]
@@ -61,13 +61,13 @@
 
         :else
         (log/warn (str "Unexpected data received.\n"
-                       (pprint-message body))))
+                       (pprint-report body))))
 
       {:status 200 :body ""})))
 
 (defn- parse-bounce
   [data]
-  {:type        :bounce
+  {:type        "bounce"
    :kind        (str/lower (get data "bounceType"))
    :category    (str/lower (get data "bounceSubType"))
    :feedback-id (get data "feedbackId")
@@ -81,11 +81,11 @@
 
 (defn- parse-complaint
   [data]
-  {:type          :complaint
+  {:type          "complaint"
    :user-agent    (get data "userAgent")
    :kind          (get data "complaintFeedbackType")
    :category      (get data "complaintSubType")
-   :arrival-date  (get data "arrivalDate")
+   :timestamp     (get data "arrivalDate")
    :feedback-id   (get data "feedbackId")
    :recipients    (->> (get data "complainedRecipients")
                        (mapv #(get % "emailAddress"))
@@ -102,9 +102,10 @@
 
 (defn- extract-identity
   [{:keys [tokens] :as cfg} headers]
-  (when-let [tdata (get headers "x-penpot-data")]
-    (let [result (tokens :verify {:token tdata :iss :profile-identity})]
-      (:profile-id result))))
+  (let [tdata (get headers "x-penpot-data")]
+    (when-not (str/empty? tdata)
+      (let [result (tokens :verify {:token tdata :iss :profile-identity})]
+        (:profile-id result)))))
 
 (defn- parse-notification
   [cfg message]
@@ -136,13 +137,13 @@
    (j/read-value v)))
 
 (defn- register-bounce-for-profile
-  [{:keys [pool]} {:keys [type kind profile-id] :as message}]
+  [{:keys [pool]} {:keys [type kind profile-id] :as report}]
   (when (= kind "permanent")
     (db/with-atomic [conn pool]
       (db/insert! conn :profile-complaint-report
                   {:profile-id profile-id
                    :type (name type)
-                   :content (db/tjson message)})
+                   :content (db/tjson report)})
 
       ;; TODO: maybe also try to find profiles by mail and if exists
       ;; register profile reports for them?
@@ -170,9 +171,9 @@
     (db/insert! conn :profile-complaint-report
                 {:profile-id profile-id
                  :type (name type)
-                 :content (db/tjson message)})
+                 :content (db/tjson report)})
 
-    ;; TODO: maybe also try to find profiles by mail and if exists
+    ;; TODO: maybe also try to find profiles by email and if exists
     ;; register profile reports for them?
     (doseq [email (:recipients report)]
       (db/insert! conn :global-complaint-report
@@ -189,7 +190,7 @@
                     {:is-mutted true}
                     {:id profile-id})))))
 
-(defn process-report
+(defn- process-report
   [{:keys [pool] :as cfg} {:keys [type profile-id] :as report}]
   (log/debug (str "Procesing report:\n" (pprint-report report)))
   (cond
@@ -201,10 +202,10 @@
     (log/warn (str "A notification without identity recevied from AWS\n"
                    (pprint-report report)))
 
-    (= :bounce type)
+    (= "bounce" type)
     (register-bounce-for-profile cfg report)
 
-    (= :complaint type)
+    (= "complaint" type)
     (register-complaint-for-profile cfg report)
 
     :else

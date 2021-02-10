@@ -15,7 +15,10 @@
    [app.db :as db]
    [app.db.sql :as sql]
    [app.tasks :as tasks]
+   [app.util.time :as dt]
    [app.util.emails :as emails]
+   [clojure.tools.logging :as log]
+   [integrant.core :as ig]
    [clojure.spec.alpha :as s]))
 
 ;; --- Defaults
@@ -49,15 +52,15 @@
     (let [sql  (sql/select :profile-complaint-report
                            {:profile-id (:id profile)
                             :is-expired false}
-                           {:columns :type
+                           {:columns [:type]
                             :limit 100})
           rows (db/exec! conn sql)
           grps (group-by :type rows)]
-      (and (< (count (get grps "bounce")) (:profile-bounce-threshold cfg/config))
-           (< (count (get grps "complaint") (:profile-complaint-threshold cfg/config)))))))
+      (and (< (count (get grps "bounce")) (cfg/get :profile-bounce-threshold))
+           (< (count (get grps "complaint")) (cfg/get :profile-complaint-threshold))))))
 
-(defn has-complain-reports?
-  ([conn email] (has-complain-reports? conn email nil))
+(defn has-complaint-reports?
+  ([conn email] (has-complaint-reports? conn email nil))
   ([conn email {:keys [threshold] :or {threshold 1}}]
    (let [reports (db/exec! conn (sql/select :global-complaint-report
                                             {:email email :type "complaint"}

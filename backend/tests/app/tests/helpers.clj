@@ -300,3 +300,25 @@
 (defn sleep
   [ms]
   (Thread/sleep ms))
+
+(defn mock-config-get-with
+  "Helper for mock app.config/get"
+  [data]
+  (fn
+    ([key] (get (merge cfg/config data) key))
+    ([key default] (get (merge cfg/config data) key default))))
+
+(defn create-complaint-for
+  [conn {:keys [id is-expired type] :or {is-expired false}}]
+  (db/insert! conn :profile-complaint-report
+              {:profile-id id
+               :is-expired is-expired
+               :type (name type)
+               :content (db/tjson {})}))
+
+(defn create-global-complaint-for
+  [conn {:keys [email type]}]
+  (db/insert! conn :global-complaint-report
+              {:email email
+               :type (name type)
+               :content (db/tjson {})}))

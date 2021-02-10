@@ -56,12 +56,11 @@
 
 (sv/defmethod ::register-profile {:auth false :rlimit :password}
   [{:keys [pool tokens session] :as cfg} {:keys [token] :as params}]
-  (when-not (:registration-enabled cfg/config)
+  (when-not (cfg/get :registration-enabled)
     (ex/raise :type :restriction
               :code :registration-disabled))
 
-  (when-not (email-domain-in-whitelist? (:registration-domain-whitelist cfg/config)
-                                        (:email params))
+  (when-not (email-domain-in-whitelist? (cfg/get :registration-domain-whitelist) (:email params))
     (ex/raise :type :validation
               :code :email-domain-is-not-allowed))
 
@@ -115,7 +114,7 @@
 
           ;; Don't allow proceed in register page if the email is
           ;; already reported as spam.
-          (when-not (emails/has-bounce-reports? conn (:email profile))
+          (when (emails/has-bounce-reports? conn (:email profile))
             (ex/raise :type :validation
                       :code :email-has-permanent-bounces
                       :hint "looks like the email has one or many bounces reported"))

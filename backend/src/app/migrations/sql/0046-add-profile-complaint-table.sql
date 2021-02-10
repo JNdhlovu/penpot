@@ -5,14 +5,15 @@ CREATE TABLE profile_complaint_report (
   is_expired boolean DEFAULT false,
 
   type text NOT NULL,
-  content jsonb
+  content jsonb,
 
   PRIMARY KEY (profile_id, created_at)
 );
 
 -- Enables fast index only scans.
-CREATE INDEX profile_complaint_report__not_expired__idx (created_at, profile_id)
- WHERE is_expred IS false;
+CREATE INDEX profile_complaint_report__not_expired__idx
+    ON profile_complaint_report (created_at, profile_id)
+ WHERE is_expired IS false;
 
 ALTER TABLE profile_complaint_report
   ALTER COLUMN type SET STORAGE external,
@@ -40,7 +41,7 @@ CREATE TABLE global_complaint_report (
   email text NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
 
-  type text NOT NULL
+  type text NOT NULL,
   content jsonb,
 
   PRIMARY KEY (email, created_at)
